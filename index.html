@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Monitor Cuaca ESP32</title>
+    <title>Monitor Cuaca ESP32 (Wi-Fi)</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <style>
         /* CSS Global */
@@ -242,7 +242,7 @@
             <p id="mainConditionText" class="condition-text">Mencari Data...</p>
             <p id="temperatureText" class="temperature-text">--°C</p>
             <p id="pressureText" class="pressure-text">-- hPa</p>
-            <p id="disconnectedMessage" class="disconnected-message" style="display: none; color: #e74c3c; font-weight: bold;">Menunggu koneksi BLE...</p>
+            <p id="disconnectedMessage" class="disconnected-message" style="display: none; color: #e74c3c; font-weight: bold;">Menunggu koneksi Wi-Fi...</p>
         </div>
 
         <div class="detail-cards-container">
@@ -261,19 +261,11 @@
             </div>
         </div>
 
-        <button id="connectButton" class="connect-button">Hubungkan ESP32</button>
+        <button id="connectButton" class="connect-button">Mulai Monitoring</button>
         <div id="messageBox" class="message-box"></div>
     </div>
 
     <script>
-        // --- Konfigurasi UUIDs BLE ---
-        // PASTIKAN UUIDS INI SAMA PERSIS DENGAN YANG DI FIRMWARE ESP32 AKEM!
-        const SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c2c687b17b20'; // Contoh UUID Service
-        const RAIN_CHARACTERISTIC_UUID = 'beb5483e-36e1-4688-b7f5-ea07361b26a8'; // Contoh UUID Characteristic Hujan
-        const LDR_CHARACTERISTIC_UUID = 'beb5483e-36e1-4688-b7f5-ea07361b26a9';  // Contoh UUID Characteristic LDR
-        const TEMP_CHARACTERISTIC_UUID = 'beb5483e-36e1-4688-b7f5-ea07361b26b0';  // Contoh UUID Characteristic Suhu
-        const PRESSURE_CHARACTERISTIC_UUID = 'beb5483e-36e1-4688-b7f5-ea07361b26b1'; // Contoh UUID Characteristic Tekanan
-
         // Threshold untuk Sensor (sama dengan di firmware ESP32)
         const RAIN_THRESHOLD = 3000;
         const LDR_THRESHOLD = 1000;
@@ -296,11 +288,7 @@
         const ldrRawValue = document.getElementById('ldrRawValue');
         const messageBox = document.getElementById('messageBox');
 
-        let deviceCache = null;
-        let rainCharacteristicCache = null;
-        let ldrCharacteristicCache = null;
-        let tempCharacteristicCache = null;
-        let pressureCharacteristicCache = null;
+        let fetchIntervalId = null; // Untuk menyimpan ID interval fetch
 
         // Fungsi untuk menampilkan pesan ke pengguna
         function showMessage(message, type = 'info') {
@@ -315,18 +303,18 @@
         function updateConnectionUI(connected) {
             if (connected) {
                 connectionStatus.textContent = 'Status Koneksi: Terhubung ✅';
-                connectButton.textContent = 'Putuskan Koneksi';
-                connectButton.style.backgroundColor = '#f44336'; /* Merah untuk putuskan */
-                connectButton.onclick = disconnectDevice;
+                deviceNameDisplay.textContent = 'Perangkat: ESP32 (Wi-Fi)';
+                connectButton.textContent = 'Hentikan Monitoring';
+                connectButton.style.backgroundColor = '#f44336'; /* Merah untuk hentikan */
+                connectButton.onclick = stopMonitoring;
                 disconnectedMessage.style.display = 'none';
                 loadingIndicator.style.display = 'none';
-                document.body.classList.remove('disconnected');
             } else {
                 connectionStatus.textContent = 'Status Koneksi: Tidak Terhubung ❌';
                 deviceNameDisplay.textContent = 'Perangkat: Belum Terpilih';
-                connectButton.textContent = 'Hubungkan ESP32';
+                connectButton.textContent = 'Mulai Monitoring';
                 connectButton.style.backgroundColor = 'var(--primary-color)';
-                connectButton.onclick = requestDevice;
+                connectButton.onclick = startMonitoring;
                 disconnectedMessage.style.display = 'block';
                 temperatureText.textContent = '--°C';
                 pressureText.textContent = '-- hPa';
@@ -335,7 +323,6 @@
                 ldrStatus.textContent = 'Terang';
                 ldrRawValue.textContent = '(Nilai: --)';
                 updateMainCondition('Tidak Terhubung'); // Update kondisi utama
-                document.body.className = 'disconnected'; // Set background disconnected
             }
         }
 
@@ -405,162 +392,75 @@
             document.body.className = bodyClass; // Update class body untuk background
         }
 
-        // Fungsi untuk membaca nilai karakteristik
-        async function readCharacteristicValue(characteristic) {
-            const value = await characteristic.readValue();
-            // Data dari ESP32 biasanya dalam bentuk DataView (byte array)
-            // Kita asumsikan ESP32 mengirimkan nilai sebagai string ASCII
-            const decoder = new TextDecoder('utf-8');
-            return decoder.decode(value);
-        }
-
-        // Fungsi untuk memulai pemindaian dan koneksi BLE
-        async function requestDevice() {
-            if (!navigator.bluetooth) {
-                showMessage('Web Bluetooth tidak didukung di browser ini. Gunakan Chrome di Android/Desktop atau Edge.', 'error');
-                return;
-            }
-
+        // Fungsi untuk mengambil data dari ESP32 melalui Wi-Fi (HTTP)
+        async function fetchDataFromESP32() {
             loadingIndicator.style.display = 'inline';
-            connectButton.disabled = true;
-            showMessage('Mencari perangkat ESP32...', 'info');
+            // GANTI DENGAN ALAMAT IP ASLI ESP32 AKEM!
+            // Pastikan ESP32 berjalan sebagai server HTTP dan memberikan JSON.
+            const esp32IpAddress = 'http://192.168.1.17'; // <<< GANTI INI DENGAN IP ASLI ESP32 AKEM!
+            console.log(`Mencoba mengambil data dari: ${esp32IpAddress}`);
 
             try {
-                const device = await navigator.bluetooth.requestDevice({
-                    // Filter berdasarkan Service UUID (lebih disarankan)
-                    filters: [{ services: [SERVICE_UUID] }],
-                    // Atau Akem bisa juga menggunakan filter berdasarkan nama (jika nama Bluetooth ESP32 unik)
-                    // filters: [{ name: 'Akem' }], // Menggunakan nama Bluetooth "Akem"
-                    optionalServices: [SERVICE_UUID] // Penting untuk discover services
-                });
+                const response = await fetch(esp32IpAddress);
 
-                deviceCache = device;
-                deviceNameDisplay.textContent = `Perangkat: ${device.name || 'Tidak Dikenal'}`;
-                showMessage(`Ditemukan: ${device.name || device.id}. Menghubungkan...`, 'info');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status} - ${response.statusText}`);
+                }
 
-                device.addEventListener('gattserverdisconnected', onDisconnected);
-                const server = await device.gatt.connect();
-                showMessage('Terhubung ke perangkat BLE!', 'success');
-                updateConnectionUI(true);
+                const data = await response.json();
+                console.log("Data JSON yang diterima:", data);
 
-                const service = await server.getPrimaryService(SERVICE_UUID);
-
-                // Dapatkan dan monitor karakteristik sensor
-                rainCharacteristicCache = await service.getCharacteristic(RAIN_CHARACTERISTIC_UUID);
-                ldrCharacteristicCache = await service.getCharacteristic(LDR_CHARACTERISTIC_UUID);
-                tempCharacteristicCache = await service.getCharacteristic(TEMP_CHARACTERISTIC_UUID);
-                pressureCharacteristicCache = await service.getCharacteristic(PRESSURE_CHARACTERISTIC_UUID);
-
-                // Mulai notifikasi untuk setiap karakteristik
-                await rainCharacteristicCache.startNotifications();
-                rainCharacteristicCache.addEventListener('characteristicvaluechanged', handleRainCharacteristicNotifications);
-
-                await ldrCharacteristicCache.startNotifications();
-                ldrCharacteristicCache.addEventListener('characteristicvaluechanged', handleLdrCharacteristicNotifications);
-
-                await tempCharacteristicCache.startNotifications();
-                tempCharacteristicCache.addEventListener('characteristicvaluechanged', handleTempCharacteristicNotifications);
-
-                await pressureCharacteristicCache.startNotifications();
-                pressureCharacteristicCache.addEventListener('characteristicvaluechanged', handlePressureCharacteristicNotifications);
-
-                // Baca nilai awal setelah terhubung
-                const initialRain = parseInt(await readCharacteristicValue(rainCharacteristicCache));
-                const initialLdr = parseInt(await readCharacteristicValue(ldrCharacteristicCache));
-                const initialTemp = parseFloat(await readCharacteristicValue(tempCharacteristicCache));
-                const initialPressure = parseFloat(await readCharacteristicValue(pressureCharacteristicCache));
-                updateSensorUI(initialRain, initialLdr, initialTemp, initialPressure);
+                updateSensorUI(data.rainValue, data.ldrValue, data.temperature, data.pressure);
+                updateConnectionUI(true); // Koneksi berhasil
+                showMessage('Data diterima dari ESP32.', 'success');
 
             } catch (error) {
-                console.error('Error BLE:', error);
-                showMessage(`Gagal terhubung: ${error.message}`, 'error');
-                updateConnectionUI(false);
+                console.error("Gagal mengambil data dari ESP32:", error);
+                showMessage(`Gagal terhubung ke ESP32: ${error.message}. Pastikan IP benar dan ESP32 online.`, 'error');
+                updateConnectionUI(false); // Koneksi gagal
             } finally {
                 loadingIndicator.style.display = 'none';
-                connectButton.disabled = false;
             }
         }
 
-        // Handler notifikasi untuk Hujan
-        function handleRainCharacteristicNotifications(event) {
-            const value = parseInt(new TextDecoder('utf-8').decode(event.target.value));
-            // Hanya update jika ada perubahan signifikan atau secara berkala
-            if (value !== parseInt(rainRawValue.textContent.replace('(Nilai: ', '').replace(')', ''))) {
-                updateSensorUI(value, parseInt(ldrRawValue.textContent.replace('(Nilai: ', '').replace(')', '')), parseFloat(temperatureText.textContent), parseFloat(pressureText.textContent));
+        // Fungsi untuk memulai monitoring
+        function startMonitoring() {
+            // Hentikan interval lama jika ada
+            if (fetchIntervalId) {
+                clearInterval(fetchIntervalId);
             }
+            // Mulai fetch pertama kali
+            fetchDataFromESP32();
+            // Atur interval untuk fetch berkala
+            fetchIntervalId = setInterval(fetchDataFromESP32, 5000); // Fetch setiap 5 detik
+            connectButton.disabled = false; // Pastikan tombol aktif
         }
 
-        // Handler notifikasi untuk LDR
-        function handleLdrCharacteristicNotifications(event) {
-            const value = parseInt(new TextDecoder('utf-8').decode(event.target.value));
-            if (value !== parseInt(ldrRawValue.textContent.replace('(Nilai: ', '').replace(')', ''))) {
-                updateSensorUI(parseInt(rainRawValue.textContent.replace('(Nilai: ', '').replace(')', '')), value, parseFloat(temperatureText.textContent), parseFloat(pressureText.textContent));
+        // Fungsi untuk menghentikan monitoring
+        function stopMonitoring() {
+            if (fetchIntervalId) {
+                clearInterval(fetchIntervalId);
+                fetchIntervalId = null;
             }
-        }
-
-        // Handler notifikasi untuk Suhu
-        function handleTempCharacteristicNotifications(event) {
-            const value = parseFloat(new TextDecoder('utf-8').decode(event.target.value));
-            if (value !== parseFloat(temperatureText.textContent.replace('°C', ''))) { // Hapus °C sebelum parsing
-                updateSensorUI(parseInt(rainRawValue.textContent.replace('(Nilai: ', '').replace(')', '')), parseInt(ldrRawValue.textContent.replace('(Nilai: ', '').replace(')', '')), value, parseFloat(pressureText.textContent));
-            }
-        }
-
-        // Handler notifikasi untuk Tekanan
-        function handlePressureCharacteristicNotifications(event) {
-            const value = parseFloat(new TextDecoder('utf-8').decode(event.target.value));
-            if (value !== parseFloat(pressureText.textContent.replace('hPa', ''))) { // Hapus hPa sebelum parsing
-                updateSensorUI(parseInt(rainRawValue.textContent.replace('(Nilai: ', '').replace(')', '')), parseInt(ldrRawValue.textContent.replace('(Nilai: ', '').replace(')', '')), parseFloat(temperatureText.textContent), value);
-            }
-        }
-
-
-        // Fungsi untuk memutuskan koneksi BLE
-        async function disconnectDevice() {
-            if (deviceCache && deviceCache.gatt.connected) {
-                try {
-                    await rainCharacteristicCache.stopNotifications();
-                    rainCharacteristicCache.removeEventListener('characteristicvaluechanged', handleRainCharacteristicNotifications);
-                    // Hentikan notifikasi dan hapus event listener untuk karakteristik lainnya
-                    await ldrCharacteristicCache.stopNotifications();
-                    ldrCharacteristicCache.removeEventListener('characteristicvaluechanged', handleLdrCharacteristicNotifications);
-                    await tempCharacteristicCache.stopNotifications();
-                    tempCharacteristicCache.removeEventListener('characteristicvaluechanged', handleTempCharacteristicNotifications);
-                    await pressureCharacteristicCache.stopNotifications();
-                    pressureCharacteristicCache.removeEventListener('characteristicvaluechanged', handlePressureCharacteristicNotifications);
-
-                    deviceCache.gatt.disconnect();
-                    showMessage('Koneksi BLE diputuskan.', 'info');
-                } catch (error) {
-                    console.error('Error memutuskan koneksi:', error);
-                    showMessage('Gagal memutuskan koneksi.', 'error');
-                }
-            }
-            updateConnectionUI(false);
-            deviceCache = null;
-            rainCharacteristicCache = null;
-            ldrCharacteristicCache = null;
-            tempCharacteristicCache = null;
-            pressureCharacteristicCache = null;
-        }
-
-        // Callback saat perangkat terputus secara tiba-tiba
-        function onDisconnected(event) {
-            const device = event.target;
-            console.log(`Perangkat ${device.name || device.id} terputus.`);
-            showMessage(`Perangkat ${device.name || device.id} terputus.`, 'warning');
+            showMessage('Monitoring dihentikan.', 'info');
             updateConnectionUI(false);
         }
 
-        // Event listener untuk tombol koneksi
-        connectButton.addEventListener('click', requestDevice);
+        // Event listener untuk tombol koneksi/monitoring
+        connectButton.addEventListener('click', () => {
+            if (connectButton.textContent === 'Mulai Monitoring') {
+                startMonitoring();
+            } else {
+                stopMonitoring();
+            }
+        });
 
         // Inisialisasi UI saat halaman dimuat
         document.addEventListener('DOMContentLoaded', () => {
             updateConnectionUI(false); // Set status awal tidak terhubung
             updateMainCondition('Memuat...'); // Tampilan awal
+            // Tidak otomatis mulai monitoring, menunggu klik tombol
         });
-
-    </script>
+    </script>
 </body>
 </html>
