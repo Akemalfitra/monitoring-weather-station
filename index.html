@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitor Cuaca ESP32</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* CSS Global */
+        :root {
+            --primary-color: #4CAF50; /* Hijau untuk tombol */
+            --secondary-color: #2196F3; /* Biru untuk hujan */
+            --dark-color: #333;
+            --light-color: #f4f4f4;
+            --card-bg: rgba(255, 255, 255, 0.9);
+            --overlay-bg: rgba(0, 0, 0, 0.4);
+            --border-radius: 12px;
+            --shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #e0f7fa; /* Warna latar belakang default */
+            color: var(--dark-color);
+            transition: background-image 0.5s ease-in-out;
+            background-size: cover;
+            background-position: center;
+        }
+
+        /* Background Images - Akan diganti oleh JS */
+        /* Akem bisa mengganti URL placeholder ini dengan URL gambar Akem sendiri */
+        body.sunny { background-image: url('https://placehold.co/1920x1080/87CEEB/FFFFFF?text=Sunny+Day'); }
+        body.rainy { background-image: url('https://placehold.co/1920x1080/6495ED/FFFFFF?text=Rainy+Day'); }
+        body.dark { background-image: url('https://placehold.co/1920x1080/4682B4/FFFFFF?text=Night'); }
+        body.rainy-dark { background-image: url('https://placehold.co/1920x1080/483D8B/FFFFFF?text=Rainy+Night'); }
+        body.disconnected { background-image: url('https://placehold.co/1920x1080/778899/FFFFFF?text=Disconnected'); }
+
+
+        .container {
+            background-color: var(--overlay-bg);
+            padding: 25px;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+            text-align: center;
+            width: 90%;
+            max-width: 500px;
+            box-sizing: border-box;
+            backdrop-filter: blur(5px); /* Efek blur pada overlay */
+            -webkit-backdrop-filter: blur(5px); /* Untuk kompatibilitas Safari */
+        }
+
+        h1 {
+            color: #fff;
+            font-size: 2.2em;
+            margin-bottom: 20px;
+            font-weight: 700;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        .status-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-bottom: 20px;
+            padding: 10px;
+            background-color: rgba(255, 255, 255, 0.2);
+            border-radius: var(--border-radius);
+            color: #fff;
+            font-weight: 600;
+        }
+
+        .status-text {
+            font-size: 1.1em;
+            margin-bottom: 5px;
+        }
+
+        .main-card {
+            background-color: var(--card-bg);
+            border-radius: var(--border-radius);
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .main-card .icon-display {
+            font-size: 6em; /* Ukuran ikon utama */
+            margin-bottom: 10px;
+        }
+
+        .main-card .condition-text {
+            font-size: 1.8em;
+            font-weight: 700;
+            margin-bottom: 10px;
+            color: var(--dark-color);
+        }
+
+        .main-card .temperature-text {
+            font-size: 3.5em;
+            font-weight: 700;
+            color: var(--dark-color);
+            margin-bottom: 5px;
+        }
+
+        .main-card .pressure-text {
+            font-size: 1.2em;
+            color: #666;
+        }
+
+        .detail-cards-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-around;
+            gap: 15px;
+        }
+
+        .detail-card {
+            background-color: var(--card-bg);
+            border-radius: var(--border-radius);
+            padding: 15px;
+            box-shadow: var(--shadow);
+            flex: 1;
+            min-width: 150px; /* Lebar minimum untuk kartu detail */
+            max-width: 48%; /* Agar bisa dua kolom */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .detail-card .icon-display {
+            font-size: 2.5em;
+            margin-bottom: 8px;
+        }
+
+        .detail-card .detail-label {
+            font-size: 1.1em;
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 5px;
+        }
+
+        .detail-card .detail-value {
+            font-size: 1.2em;
+            font-weight: 700;
+            color: var(--dark-color);
+        }
+
+        .detail-card .raw-value {
+            font-size: 0.9em;
+            color: #777;
+            margin-top: 5px;
+        }
+
+        .connect-button {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 12px 25px;
+            border: none;
+            border-radius: var(--border-radius);
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.3s ease, transform 0.1s ease;
+            margin-top: 25px;
+            box-shadow: var(--shadow);
+        }
+
+        .connect-button:hover {
+            background-color: #45a049;
+            transform: translateY(-2px);
+        }
+
+        .connect-button:active {
+            transform: translateY(0);
+        }
+
+        .connect-button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .message-box {
+            background-color: rgba(255, 255, 255, 0.95);
+            color: var(--dark-color);
+            padding: 15px;
+            border-radius: var(--border-radius);
+            margin-top: 20px;
+            font-size: 0.95em;
+            box-shadow: var(--shadow);
+            display: none; /* Sembunyikan secara default */
+            text-align: left;
+        }
+
+        .message-box.show {
+            display: block;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 600px) {
+            .container {
+                width: 95%;
+                padding: 15px;
+            }
+            h1 {
+                font-size: 1.8em;
+            }
+            .main-card .icon-display {
+                font-size: 5em;
+            }
+            .main-card .temperature-text {
+                font-size: 3em;
+            }
+            .detail-card {
+                max-width: 100%; /* Satu kolom di layar kecil */
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Monitor Cuaca ESP32</h1>
+
+        <div class="status-container">
+            <span id="connectionStatus" class="status-text">Status Koneksi: Tidak Terhubung ❌</span>
+            <span id="deviceName" class="status-text">Perangkat: Belum Terpilih</span>
+            <span id="loadingIndicator" style="display: none;">Memuat...</span>
+        </div>
+
+        <div class="main-card">
+            <span id="mainIcon" class="icon-display">☀️</span>
+            <p id="mainConditionText" class="condition-text">Mencari Data...</p>
+            <p id="temperatureText" class="temperature-text">--°C</p>
+            <p id="pressureText" class="pressure-text">-- hPa</p>
+            <p id="disconnectedMessage" class="disconnected-message" style="display: none; color: #e74c3c; font-weight: bold;">Menunggu koneksi BLE...</p>
+        </div>
+
+        <div class="detail-cards-container">
+            <div class="detail-card">
+                <span id="rainIcon" class="icon-display">💧</span>
+                <p class="detail-label">Hujan</p>
+                <p id="rainStatus" class="detail-value">Tidak Terdeteksi</p>
+                <p id="rainRawValue" class="raw-value">(Nilai: --)</p>
+            </div>
+
+            <div class="detail-card">
+                <span id="ldrIcon" class="icon-display">💡</span>
+                <p class="detail-label">Cahaya</p>
+                <p id="ldrStatus" class="detail-value">Terang</p>
+                <p id="ldrRawValue" class="raw-value">(Nilai: --)</p>
+            </div>
+        </div>
+
+        <button id="connectButton" class="connect-button">Hubungkan ESP32</button>
+        <div id="messageBox" class="message-box"></div>
+    </div>
+
+    <script>
+        // --- Konfigurasi UUIDs BLE ---
+        // PASTIKAN UUIDS INI SAMA PERSIS DENGAN YANG DI FIRMWARE ESP32 AKEM!
+        const SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c2c687b17b20'; // Contoh UUID Service
+        const RAIN_CHARACTERISTIC_UUID = 'beb5483e-36e1-4688-b7f5-ea07361b26a8'; // Contoh UUID Characteristic Hujan
+        const LDR_CHARACTERISTIC_UUID = 'beb5483e-36e1-4688-b7f5-ea07361b26a9';  // Contoh UUID Characteristic LDR
+        const TEMP_CHARACTERISTIC_UUID = 'beb5483e-36e1-4688-b7f5-ea07361b26b0';  // Contoh UUID Characteristic Suhu
+        const PRESSURE_CHARACTERISTIC_UUID = 'beb5483e-36e1-4688-b7f5-ea07361b26b1'; // Contoh UUID Characteristic Tekanan
+
+        // Threshold untuk Sensor (sama dengan di firmware ESP32)
+        const RAIN_THRESHOLD = 3000;
+        const LDR_THRESHOLD = 1000;
+
+        // Elemen UI
+        const connectButton = document.getElementById('connectButton');
+        const connectionStatus = document.getElementById('connectionStatus');
+        const deviceNameDisplay = document.getElementById('deviceName');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const mainIcon = document.getElementById('mainIcon');
+        const mainConditionText = document.getElementById('mainConditionText');
+        const temperatureText = document.getElementById('temperatureText');
+        const pressureText = document.getElementById('pressureText');
+        const disconnectedMessage = document.getElementById('disconnectedMessage');
+        const rainIcon = document.getElementById('rainIcon');
+        const rainStatus = document.getElementById('rainStatus');
+        const rainRawValue = document.getElementById('rainRawValue');
+        const ldrIcon = document.getElementById('ldrIcon');
+        const ldrStatus = document.getElementById('ldrStatus');
+        const ldrRawValue = document.getElementById('ldrRawValue');
+        const messageBox = document.getElementById('messageBox');
+
+        let deviceCache = null;
+        let rainCharacteristicCache = null;
+        let ldrCharacteristicCache = null;
+        let tempCharacteristicCache = null;
+        let pressureCharacteristicCache = null;
+
+        // Fungsi untuk menampilkan pesan ke pengguna
+        function showMessage(message, type = 'info') {
+            messageBox.textContent = message;
+            messageBox.className = `message-box show ${type}`; // Tambahkan kelas type untuk styling
+            setTimeout(() => {
+                messageBox.classList.remove('show');
+            }, 5000); // Sembunyikan setelah 5 detik
+        }
+
+        // Fungsi untuk memperbarui UI berdasarkan status koneksi
+        function updateConnectionUI(connected) {
+            if (connected) {
+                connectionStatus.textContent = 'Status Koneksi: Terhubung ✅';
+                connectButton.textContent = 'Putuskan Koneksi';
+                connectButton.style.backgroundColor = '#f44336'; /* Merah untuk putuskan */
+                connectButton.onclick = disconnectDevice;
+                disconnectedMessage.style.display = 'none';
+                loadingIndicator.style.display = 'none';
+                document.body.classList.remove('disconnected');
+            } else {
+                connectionStatus.textContent = 'Status Koneksi: Tidak Terhubung ❌';
+                deviceNameDisplay.textContent = 'Perangkat: Belum Terpilih';
+                connectButton.textContent = 'Hubungkan ESP32';
+                connectButton.style.backgroundColor = 'var(--primary-color)';
+                connectButton.onclick = requestDevice;
+                disconnectedMessage.style.display = 'block';
+                temperatureText.textContent = '--°C';
+                pressureText.textContent = '-- hPa';
+                rainStatus.textContent = 'Tidak Terdeteksi';
+                rainRawValue.textContent = '(Nilai: --)';
+                ldrStatus.textContent = 'Terang';
+                ldrRawValue.textContent = '(Nilai: --)';
+                updateMainCondition('Tidak Terhubung'); // Update kondisi utama
+                document.body.className = 'disconnected'; // Set background disconnected
+            }
+        }
+
+        // Fungsi untuk memperbarui UI sensor
+        function updateSensorUI(rainVal, ldrVal, tempVal, pressVal) {
+            const isRaining = rainVal < RAIN_THRESHOLD;
+            const isDark = ldrVal < LDR_THRESHOLD;
+
+            let currentCondition = "Normal";
+            if (isRaining && isDark) {
+                currentCondition = "Hujan dan Gelap";
+            } else if (isRaining) {
+                currentCondition = "Hujan saja";
+            } else if (isDark) {
+                currentCondition = "Gelap saja";
+            }
+            updateMainCondition(currentCondition);
+
+            temperatureText.textContent = `${tempVal.toFixed(2)}°C`;
+            pressureText.textContent = `${pressVal.toFixed(2)} hPa`;
+
+            rainStatus.textContent = isRaining ? 'Terdeteksi' : 'Tidak Terdeteksi';
+            rainRawValue.textContent = `(Nilai: ${rainVal})`;
+            rainIcon.style.color = isRaining ? 'var(--secondary-color)' : '#ccc';
+
+            ldrStatus.textContent = isDark ? 'Gelap' : 'Terang';
+            ldrRawValue.textContent = `(Nilai: ${ldrVal})`;
+            ldrIcon.style.color = isDark ? '#4b0082' : '#ffd700';
+        }
+
+        // Fungsi untuk memperbarui kondisi utama dan background
+        function updateMainCondition(condition) {
+            let iconChar = '';
+            let iconColor = '';
+            let bodyClass = '';
+
+            switch (condition) {
+                case "Hujan dan Gelap":
+                    iconChar = '⛈️'; // Petir dan Hujan
+                    iconColor = '#6a0dad';
+                    bodyClass = 'rainy-dark';
+                    break;
+                case "Hujan saja":
+                    iconChar = '🌧️'; // Hujan
+                    iconColor = '#4169e1';
+                    bodyClass = 'rainy';
+                    break;
+                case "Gelap saja":
+                    iconChar = '🌙'; // Bulan
+                    iconColor = '#4b0082';
+                    bodyClass = 'dark';
+                    break;
+                case "Tidak Terhubung":
+                    iconChar = '⚠️'; // Peringatan
+                    iconColor = '#e74c3c';
+                    bodyClass = 'disconnected';
+                    break;
+                default:
+                    iconChar = '☀️'; // Matahari
+                    iconColor = '#ffd700';
+                    bodyClass = 'sunny';
+                    break;
+            }
+            mainIcon.textContent = iconChar;
+            mainIcon.style.color = iconColor;
+            mainConditionText.textContent = condition;
+            document.body.className = bodyClass; // Update class body untuk background
+        }
+
+        // Fungsi untuk membaca nilai karakteristik
+        async function readCharacteristicValue(characteristic) {
+            const value = await characteristic.readValue();
+            // Data dari ESP32 biasanya dalam bentuk DataView (byte array)
+            // Kita asumsikan ESP32 mengirimkan nilai sebagai string ASCII
+            const decoder = new TextDecoder('utf-8');
+            return decoder.decode(value);
+        }
+
+        // Fungsi untuk memulai pemindaian dan koneksi BLE
+        async function requestDevice() {
+            if (!navigator.bluetooth) {
+                showMessage('Web Bluetooth tidak didukung di browser ini. Gunakan Chrome di Android/Desktop atau Edge.', 'error');
+                return;
+            }
+
+            loadingIndicator.style.display = 'inline';
+            connectButton.disabled = true;
+            showMessage('Mencari perangkat ESP32...', 'info');
+
+            try {
+                const device = await navigator.bluetooth.requestDevice({
+                    // Filter berdasarkan Service UUID (lebih disarankan)
+                    filters: [{ services: [SERVICE_UUID] }],
+                    // Atau Akem bisa juga menggunakan filter berdasarkan nama (jika nama Bluetooth ESP32 unik)
+                    // filters: [{ name: 'Akem' }], // Menggunakan nama Bluetooth "Akem"
+                    optionalServices: [SERVICE_UUID] // Penting untuk discover services
+                });
+
+                deviceCache = device;
+                deviceNameDisplay.textContent = `Perangkat: ${device.name || 'Tidak Dikenal'}`;
+                showMessage(`Ditemukan: ${device.name || device.id}. Menghubungkan...`, 'info');
+
+                device.addEventListener('gattserverdisconnected', onDisconnected);
+                const server = await device.gatt.connect();
+                showMessage('Terhubung ke perangkat BLE!', 'success');
+                updateConnectionUI(true);
+
+                const service = await server.getPrimaryService(SERVICE_UUID);
+
+                // Dapatkan dan monitor karakteristik sensor
+                rainCharacteristicCache = await service.getCharacteristic(RAIN_CHARACTERISTIC_UUID);
+                ldrCharacteristicCache = await service.getCharacteristic(LDR_CHARACTERISTIC_UUID);
+                tempCharacteristicCache = await service.getCharacteristic(TEMP_CHARACTERISTIC_UUID);
+                pressureCharacteristicCache = await service.getCharacteristic(PRESSURE_CHARACTERISTIC_UUID);
+
+                // Mulai notifikasi untuk setiap karakteristik
+                await rainCharacteristicCache.startNotifications();
+                rainCharacteristicCache.addEventListener('characteristicvaluechanged', handleRainCharacteristicNotifications);
+
+                await ldrCharacteristicCache.startNotifications();
+                ldrCharacteristicCache.addEventListener('characteristicvaluechanged', handleLdrCharacteristicNotifications);
+
+                await tempCharacteristicCache.startNotifications();
+                tempCharacteristicCache.addEventListener('characteristicvaluechanged', handleTempCharacteristicNotifications);
+
+                await pressureCharacteristicCache.startNotifications();
+                pressureCharacteristicCache.addEventListener('characteristicvaluechanged', handlePressureCharacteristicNotifications);
+
+                // Baca nilai awal setelah terhubung
+                const initialRain = parseInt(await readCharacteristicValue(rainCharacteristicCache));
+                const initialLdr = parseInt(await readCharacteristicValue(ldrCharacteristicCache));
+                const initialTemp = parseFloat(await readCharacteristicValue(tempCharacteristicCache));
+                const initialPressure = parseFloat(await readCharacteristicValue(pressureCharacteristicCache));
+                updateSensorUI(initialRain, initialLdr, initialTemp, initialPressure);
+
+            } catch (error) {
+                console.error('Error BLE:', error);
+                showMessage(`Gagal terhubung: ${error.message}`, 'error');
+                updateConnectionUI(false);
+            } finally {
+                loadingIndicator.style.display = 'none';
+                connectButton.disabled = false;
+            }
+        }
+
+        // Handler notifikasi untuk Hujan
+        function handleRainCharacteristicNotifications(event) {
+            const value = parseInt(new TextDecoder('utf-8').decode(event.target.value));
+            // Hanya update jika ada perubahan signifikan atau secara berkala
+            if (value !== parseInt(rainRawValue.textContent.replace('(Nilai: ', '').replace(')', ''))) {
+                updateSensorUI(value, parseInt(ldrRawValue.textContent.replace('(Nilai: ', '').replace(')', '')), parseFloat(temperatureText.textContent), parseFloat(pressureText.textContent));
+            }
+        }
+
+        // Handler notifikasi untuk LDR
+        function handleLdrCharacteristicNotifications(event) {
+            const value = parseInt(new TextDecoder('utf-8').decode(event.target.value));
+            if (value !== parseInt(ldrRawValue.textContent.replace('(Nilai: ', '').replace(')', ''))) {
+                updateSensorUI(parseInt(rainRawValue.textContent.replace('(Nilai: ', '').replace(')', '')), value, parseFloat(temperatureText.textContent), parseFloat(pressureText.textContent));
+            }
+        }
+
+        // Handler notifikasi untuk Suhu
+        function handleTempCharacteristicNotifications(event) {
+            const value = parseFloat(new TextDecoder('utf-8').decode(event.target.value));
+            if (value !== parseFloat(temperatureText.textContent.replace('°C', ''))) { // Hapus °C sebelum parsing
+                updateSensorUI(parseInt(rainRawValue.textContent.replace('(Nilai: ', '').replace(')', '')), parseInt(ldrRawValue.textContent.replace('(Nilai: ', '').replace(')', '')), value, parseFloat(pressureText.textContent));
+            }
+        }
+
+        // Handler notifikasi untuk Tekanan
+        function handlePressureCharacteristicNotifications(event) {
+            const value = parseFloat(new TextDecoder('utf-8').decode(event.target.value));
+            if (value !== parseFloat(pressureText.textContent.replace('hPa', ''))) { // Hapus hPa sebelum parsing
+                updateSensorUI(parseInt(rainRawValue.textContent.replace('(Nilai: ', '').replace(')', '')), parseInt(ldrRawValue.textContent.replace('(Nilai: ', '').replace(')', '')), parseFloat(temperatureText.textContent), value);
+            }
+        }
+
+
+        // Fungsi untuk memutuskan koneksi BLE
+        async function disconnectDevice() {
+            if (deviceCache && deviceCache.gatt.connected) {
+                try {
+                    await rainCharacteristicCache.stopNotifications();
+                    rainCharacteristicCache.removeEventListener('characteristicvaluechanged', handleRainCharacteristicNotifications);
+                    // Hentikan notifikasi dan hapus event listener untuk karakteristik lainnya
+                    await ldrCharacteristicCache.stopNotifications();
+                    ldrCharacteristicCache.removeEventListener('characteristicvaluechanged', handleLdrCharacteristicNotifications);
+                    await tempCharacteristicCache.stopNotifications();
+                    tempCharacteristicCache.removeEventListener('characteristicvaluechanged', handleTempCharacteristicNotifications);
+                    await pressureCharacteristicCache.stopNotifications();
+                    pressureCharacteristicCache.removeEventListener('characteristicvaluechanged', handlePressureCharacteristicNotifications);
+
+                    deviceCache.gatt.disconnect();
+                    showMessage('Koneksi BLE diputuskan.', 'info');
+                } catch (error) {
+                    console.error('Error memutuskan koneksi:', error);
+                    showMessage('Gagal memutuskan koneksi.', 'error');
+                }
+            }
+            updateConnectionUI(false);
+            deviceCache = null;
+            rainCharacteristicCache = null;
+            ldrCharacteristicCache = null;
+            tempCharacteristicCache = null;
+            pressureCharacteristicCache = null;
+        }
+
+        // Callback saat perangkat terputus secara tiba-tiba
+        function onDisconnected(event) {
+            const device = event.target;
+            console.log(`Perangkat ${device.name || device.id} terputus.`);
+            showMessage(`Perangkat ${device.name || device.id} terputus.`, 'warning');
+            updateConnectionUI(false);
+        }
+
+        // Event listener untuk tombol koneksi
+        connectButton.addEventListener('click', requestDevice);
+
+        // Inisialisasi UI saat halaman dimuat
+        document.addEventListener('DOMContentLoaded', () => {
+            updateConnectionUI(false); // Set status awal tidak terhubung
+            updateMainCondition('Memuat...'); // Tampilan awal
+        });
+
+    </script>
+</body>
+</html>
